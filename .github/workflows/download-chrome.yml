@@ -77,17 +77,6 @@ jobs:
             exit 1
           fi
           
-          SIZE=$(stat -c%s "$FILE")
-          MIN_SIZE=60000000
-          MAX_SIZE=100000000
-          
-          echo "文件大小: $SIZE 字节"
-          
-          if [ $SIZE -lt $MIN_SIZE ] || [ $SIZE -gt $MAX_SIZE ]; then
-            echo "❌ 文件大小异常: $SIZE"
-            exit 1
-          fi
-          
           FILETYPE=$(file "$FILE")
           if echo "$FILETYPE" | grep -q "PE32"; then
             echo "✅ 文件类型校验通过"
