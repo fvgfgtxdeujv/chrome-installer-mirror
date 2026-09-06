@@ -15,6 +15,7 @@
 - ✅ **完整性校验**：自动生成 SHA256 哈希值，确保文件未被篡改
 - 🗑️ **自动清理**：每次更新只保留最新版本，节省存储空间
 - 🔗 **永久下载链接**：通过 GitHub Releases 提供稳定下载地址
+- 📚 **历史版本归档**：自动归档到私有 WebDAV 服务器（可选）
 
 ---
 
@@ -22,12 +23,12 @@
 
 ### 方式一：直接下载（推荐）
 
-访问 [Releases 页面](https://github.com/fvgfgtxdeujv/chrome-installer-mirror/releases/latest)，下载 `chrome_installer.exe`
+访问 [Releases 页面](https://github.com/fvgfgtxdeujv/chrome-installer-mirror/releases/latest)，下载 `chrome_版本号.exe`
 
 ### 方式二：使用命令行
 
 ```bash
-# 获取最新 Release 下载链接
+# 获取最新 Release 下载链接并下载
 curl -s https://api.github.com/repos/fvgfgtxdeujv/chrome-installer-mirror/releases/latest \
   | grep "browser_download_url" \
   | grep ".exe" \
