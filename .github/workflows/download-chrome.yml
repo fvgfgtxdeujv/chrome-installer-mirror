@@ -92,7 +92,6 @@ jobs:
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
           echo "✅ SHA256: $SHA256"
           
-          # 生成带版本号的 SHA256 文件
           VERSION="${{ steps.latest.outputs.version }}"
           echo "$SHA256  chrome_${VERSION}.exe" > "chrome_${VERSION}.exe.sha256"
           echo "✅ 校验文件已生成: chrome_${VERSION}.exe.sha256"
@@ -107,15 +106,32 @@ jobs:
       - name: 🗑️ 删除上一个 Release（保留最新版）
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
         run: |
-          OLD_RELEASE=$(gh release list --limit 10 --repo ${{ github.repository }} \
-            | grep -E 'chrome-v[0-9]' \
-            | sort -V -k2 \
-            | tail -n1 \
-            | awk '{print $1}')
+          CURRENT_TAG="chrome-v${{ steps.latest.outputs.version }}"
+          echo "当前版本 Tag: $CURRENT_TAG"
           
-          if [ -n "$OLD_RELEASE" ]; then
-            echo "🗑️ 删除旧 Release: $OLD_RELEASE"
-            gh release delete "$OLD_RELEASE" --repo ${{ github.repository }} --yes
+          # 获取所有 chrome-v 开头的 Release
+          RELEASE_LIST=$(gh release list --limit 50 --repo ${{ github.repository }} || echo "")
+          
+          if [ -z "$RELEASE_LIST" ]; then
+            echo "ℹ️ 没有找到任何 Release"
+            exit 0
+          fi
+          
+          # 提取所有 Tag 名称
+          ALL_TAGS=$(echo "$RELEASE_LIST" | grep 'chrome-v' | awk '{print $1}' || echo "")
+          
+          if [ -z "$ALL_TAGS" ]; then
+            echo "ℹ️ 没有找到 chrome-v 开头的 Release"
+            exit 0
+          fi
+          
+          # 查找第一个不是当前版本的旧 Release
+          OLD_TAG=$(echo "$ALL_TAGS" | grep -v "$CURRENT_TAG" | head -n 1)
+          
+          if [ -n "$OLD_TAG" ]; then
+            echo "🗑️ 发现旧 Release: $OLD_TAG，正在删除..."
+            gh release delete "$OLD_TAG" --repo ${{ github.repository }} --yes
+            echo "✅ 删除成功: $OLD_TAG"
           else
             echo "ℹ️ 没有旧 Release 需要删除"
           fi
@@ -162,22 +178,18 @@ jobs:
       - name: 📤 上传到 WebDAV
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
         run: |
-          # 检查 WebDAV 配置
           if [ -z "${{ secrets.WEBDAV_URL }}" ] || [ -z "${{ secrets.WEBDAV_USERNAME }}" ] || [ -z "${{ secrets.WEBDAV_PASSWORD }}" ]; then
             echo "⚠️ WebDAV 配置不完整，跳过上传"
             exit 0
           fi
           
-          # 安装 Python 依赖
           echo "📦 安装 webdavclient3..."
           pip install webdavclient3
           
-          # 设置环境变量
           export WEBDAV_URL="${{ secrets.WEBDAV_URL }}"
           export WEBDAV_USERNAME="${{ secrets.WEBDAV_USERNAME }}"
           export WEBDAV_PASSWORD="${{ secrets.WEBDAV_PASSWORD }}"
           
-          # 运行上传脚本（自动查找 exe 文件）
           echo "🚀 开始上传到 WebDAV..."
           python3 webdav_upload.py
         shell: bash
