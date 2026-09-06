@@ -109,23 +109,18 @@ jobs:
           CURRENT_TAG="chrome-v${{ steps.latest.outputs.version }}"
           echo "当前版本 Tag: $CURRENT_TAG"
           
-          # 获取所有 chrome-v 开头的 Release
           RELEASE_LIST=$(gh release list --limit 50 --repo ${{ github.repository }} || echo "")
-          
           if [ -z "$RELEASE_LIST" ]; then
             echo "ℹ️ 没有找到任何 Release"
             exit 0
           fi
           
-          # 提取所有 Tag 名称
           ALL_TAGS=$(echo "$RELEASE_LIST" | grep 'chrome-v' | awk '{print $1}' || echo "")
-          
           if [ -z "$ALL_TAGS" ]; then
             echo "ℹ️ 没有找到 chrome-v 开头的 Release"
             exit 0
           fi
           
-          # 查找第一个不是当前版本的旧 Release
           OLD_TAG=$(echo "$ALL_TAGS" | grep -v "$CURRENT_TAG" | head -n 1)
           
           if [ -n "$OLD_TAG" ]; then
@@ -175,6 +170,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 📦 安装 Python 依赖
+        if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
+        run: |
+          echo "📦 安装 webdavclient3..."
+          python3 -m pip install --upgrade pip
+          python3 -m pip install webdavclient3
+          
+          # 验证安装，失败则终止
+          echo "🔍 验证安装..."
+          if python3 -c "import webdav3.client" 2>/dev/null; then
+            echo "✅ webdavclient3 安装成功"
+          else
+            echo "❌ webdavclient3 安装失败，终止流程"
+            exit 1
+          fi
+
       - name: 📤 上传到 WebDAV
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
         run: |
@@ -182,9 +193,6 @@ jobs:
             echo "⚠️ WebDAV 配置不完整，跳过上传"
             exit 0
           fi
-          
-          echo "📦 安装 webdavclient3..."
-          pip install webdavclient3
           
           export WEBDAV_URL="${{ secrets.WEBDAV_URL }}"
           export WEBDAV_USERNAME="${{ secrets.WEBDAV_USERNAME }}"
