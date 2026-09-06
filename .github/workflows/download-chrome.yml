@@ -170,6 +170,110 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 📤 上传到 WebDAV
+        if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
+        run: |
+          if [ -z "${{ secrets.WEBDAV_URL }}" ] || [ -z "${{ secrets.WEBDAV_USERNAME }}" ] || [ -z "${{ secrets.WEBDAV_PASSWORD }}" ]; then
+            echo "⚠️ WebDAV 配置不完整，跳过上传"
+            exit 0
+          fi
+          
+          VERSION="${{ steps.latest.outputs.version }}"
+          
+          echo "📤 上传 chrome_${VERSION}.exe 到 WebDAV..."
+          curl -u "${{ secrets.WEBDAV_USERNAME }}:${{ secrets.WEBDAV_PASSWORD }}" \
+            -T "chrome_${VERSION}.exe" \
+            "${{ secrets.WEBDAV_URL }}/chrome_${VERSION}.exe" \
+            --fail \
+            --show-error \
+            -o /dev/null \
+            -w "HTTP状态码: %{http_code}\n"
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ EXE 上传成功"
+          else
+            echo "❌ EXE 上传失败"
+            exit 1
+          fi
+          
+          echo "📤 上传 chrome_${VERSION}.exe.sha256 到 WebDAV..."
+          curl -u "${{ secrets.WEBDAV_USERNAME }}:${{ secrets.WEBDAV_PASSWORD }}" \
+            -T "chrome_${VERSION}.exe.sha256" \
+            "${{ secrets.WEBDAV_URL }}/chrome_${VERSION}.exe.sha256" \
+            --fail \
+            --show-error \
+            -o /dev/null \
+            -w "HTTP状态码: %{http_code}\n"
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ SHA256 上传成功"
+          else
+            echo "❌ SHA256 上传失败"
+            exit 1
+          fi
+          
+          echo "✅ WebDAV 上传完成！"
+        shell: bash
+
+      - name: 🚨 校验失败告警
+        if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'failure'
+        run: |
+          echo "::error::文件完整性校验失败，请手动检查！"
+          exit 1          ALL_TAGS=$(echo "$RELEASE_LIST" | grep 'chrome-v' | awk '{print $1}' || echo "")
+          if [ -z "$ALL_TAGS" ]; then
+            echo "ℹ️ 没有找到 chrome-v 开头的 Release"
+            exit 0
+          fi
+          
+          OLD_TAG=$(echo "$ALL_TAGS" | grep -v "$CURRENT_TAG" | head -n 1)
+          
+          if [ -n "$OLD_TAG" ]; then
+            echo "🗑️ 发现旧 Release: $OLD_TAG，正在删除..."
+            gh release delete "$OLD_TAG" --repo ${{ github.repository }} --yes
+            echo "✅ 删除成功: $OLD_TAG"
+          else
+            echo "ℹ️ 没有旧 Release 需要删除"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 创建 Release 并上传（带版本号）
+        if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
+        run: |
+          VERSION="${{ steps.latest.outputs.version }}"
+          TAG="chrome-v${VERSION}"
+          
+          gh release create $TAG \
+            "chrome_${VERSION}.exe" \
+            "chrome_${VERSION}.exe.sha256" \
+            --title "Chrome ${VERSION}" \
+            --notes "📦 **Chrome 自动更新包**
+          
+          | 项目 | 内容 |
+          |------|------|
+          | **版本** | ${VERSION} |
+          | **SHA256** | \`${{ steps.verify.outputs.sha256 }}\` |
+          | **文件大小** | $(stat -c%s "chrome_${VERSION}.exe") 字节 |
+          | **构建时间** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |
+          
+          ---
+          
+          ### 🔐 校验方法（Windows）
+          ```powershell
+          Get-FileHash .\chrome_${VERSION}.exe -Algorithm SHA256
+          ```
+          
+          ### 🔐 校验方法（Linux/Mac）
+          ```bash
+          sha256sum chrome_${VERSION}.exe
+          sha256sum -c chrome_${VERSION}.exe.sha256
+          ```" \
+            --repo ${{ github.repository }}
+          
+          echo "✅ Release 创建成功: $TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 📦 安装 Python 依赖
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
         run: |
