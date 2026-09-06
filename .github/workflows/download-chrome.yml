@@ -12,6 +12,9 @@ jobs:
       contents: write
 
     steps:
+      - name: 检出仓库代码
+        uses: actions/checkout@v4
+
       - name: 获取最新 Chrome 版本号
         id: latest
         run: |
@@ -89,8 +92,17 @@ jobs:
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
           echo "✅ SHA256: $SHA256"
           
-          echo "$SHA256  $FILE" > chrome_installer.exe.sha256
-          echo "✅ 校验文件已生成: chrome_installer.exe.sha256"
+          # 生成带版本号的 SHA256 文件
+          VERSION="${{ steps.latest.outputs.version }}"
+          echo "$SHA256  chrome_${VERSION}.exe" > "chrome_${VERSION}.exe.sha256"
+          echo "✅ 校验文件已生成: chrome_${VERSION}.exe.sha256"
+
+      - name: 重命名文件为带版本号
+        if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
+        run: |
+          VERSION="${{ steps.latest.outputs.version }}"
+          mv chrome_installer.exe "chrome_${VERSION}.exe"
+          echo "✅ 重命名为: chrome_${VERSION}.exe"
 
       - name: 🗑️ 删除上一个 Release（保留最新版）
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
@@ -110,41 +122,65 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 创建 Release 并上传（exe + sha256）
+      - name: 创建 Release 并上传（带版本号）
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
         run: |
-          TAG="chrome-v${{ steps.latest.outputs.version }}"
+          VERSION="${{ steps.latest.outputs.version }}"
+          TAG="chrome-v${VERSION}"
           
           gh release create $TAG \
-            chrome_installer.exe \
-            chrome_installer.exe.sha256 \
-            --title "Chrome ${{ steps.latest.outputs.version }}" \
+            "chrome_${VERSION}.exe" \
+            "chrome_${VERSION}.exe.sha256" \
+            --title "Chrome ${VERSION}" \
             --notes "📦 **Chrome 自动更新包**
           
           | 项目 | 内容 |
           |------|------|
-          | **版本** | ${{ steps.latest.outputs.version }} |
+          | **版本** | ${VERSION} |
           | **SHA256** | \`${{ steps.verify.outputs.sha256 }}\` |
-          | **文件大小** | $(stat -c%s chrome_installer.exe) 字节 |
+          | **文件大小** | $(stat -c%s "chrome_${VERSION}.exe") 字节 |
           | **构建时间** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |
           
           ---
           
           ### 🔐 校验方法（Windows）
           ```powershell
-          Get-FileHash .\chrome_installer.exe -Algorithm SHA256
+          Get-FileHash .\chrome_${VERSION}.exe -Algorithm SHA256
           ```
           
           ### 🔐 校验方法（Linux/Mac）
           ```bash
-          sha256sum chrome_installer.exe
-          sha256sum -c chrome_installer.exe.sha256
+          sha256sum chrome_${VERSION}.exe
+          sha256sum -c chrome_${VERSION}.exe.sha256
           ```" \
             --repo ${{ github.repository }}
           
           echo "✅ Release 创建成功: $TAG"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 上传到 WebDAV
+        if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'success'
+        run: |
+          # 检查 WebDAV 配置
+          if [ -z "${{ secrets.WEBDAV_URL }}" ] || [ -z "${{ secrets.WEBDAV_USERNAME }}" ] || [ -z "${{ secrets.WEBDAV_PASSWORD }}" ]; then
+            echo "⚠️ WebDAV 配置不完整，跳过上传"
+            exit 0
+          fi
+          
+          # 安装 Python 依赖
+          echo "📦 安装 webdavclient3..."
+          pip install webdavclient3
+          
+          # 设置环境变量
+          export WEBDAV_URL="${{ secrets.WEBDAV_URL }}"
+          export WEBDAV_USERNAME="${{ secrets.WEBDAV_USERNAME }}"
+          export WEBDAV_PASSWORD="${{ secrets.WEBDAV_PASSWORD }}"
+          
+          # 运行上传脚本（自动查找 exe 文件）
+          echo "🚀 开始上传到 WebDAV..."
+          python3 webdav_upload.py
+        shell: bash
 
       - name: 🚨 校验失败告警
         if: steps.compare.outputs.should_run == 'true' && steps.verify.outcome == 'failure'
